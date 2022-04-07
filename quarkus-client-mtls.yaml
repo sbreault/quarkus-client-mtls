@@ -1,0 +1,90 @@
+kind: ConfigMap
+apiVersion: v1
+metadata:
+  name: quarkus-client-mtls
+data:
+  application.properties: >-
+    org.acme.client.mtls.GreetingService/mp-rest/url=https://server:8443
+    org.acme.client.mtls.GreetingService/mp-rest/trustStore=/deployments/tls/ca/truststore
+    org.acme.client.mtls.GreetingService/mp-rest/trustStorePassword=password
+    org.acme.client.mtls.GreetingService/mp-rest/keyStore=/deployments/tls/client.keystore
+    org.acme.client.mtls.GreetingService/mp-rest/keyStorePassword=password
+
+---
+
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  name: client
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: client
+  template:
+    metadata:
+      labels:
+        app: client
+    spec:
+      volumes:
+        - name: client
+          secret:
+            secretName: quarkus-client-mtls
+        - name: truststore
+          secret:
+            secretName: quarkus-truststore-mtls
+        - name: config
+          configMap:
+              name: quarkus-client-mtls
+      containers:
+        - name: client
+          image: 'image-registry.openshift-image-registry.svc:5000/prsrpi-0000-dev/client:latest'
+          ports:
+            - containerPort: 8443
+              protocol: TCP
+          resources:
+            limits:
+              cpu: '2'
+              memory: 4Gi
+            requests:
+              cpu: 1m
+              memory: 50Mi
+          volumeMounts:
+            - name: client
+              readOnly: true
+              mountPath: /deployments/tls
+            - name: truststore
+              readOnly: true
+              mountPath: /deployments/tls/ca
+            - name: config
+              mountPath: /deployments/config
+  revisionHistoryLimit: 2
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: client
+spec:
+  selector:
+    app: client
+  ports:
+    - protocol: TCP
+      port: 8080
+      targetPort: 8080
+
+---
+
+kind: Route
+apiVersion: route.openshift.io/v1
+metadata:
+  name: client
+spec:
+  path: /hello-client
+  to:
+    kind: Service
+    name: client
+    weight: 100
+  port:
+    targetPort: 8080
+  wildcardPolicy: None      
